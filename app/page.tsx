@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Clipboard,
   Copy,
+  Download,
   ImagePlus,
   LoaderCircle,
   Mic,
@@ -18,6 +19,10 @@ import {
 import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Side = "left" | "right";
+type InstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+};
 type SpeechRecognitionEventLike = { results: { [index: number]: { [index: number]: { transcript: string } } } };
 type SpeechRecognitionLike = {
   lang: string;
@@ -95,12 +100,38 @@ export default function Home() {
   const [rateUpdated, setRateUpdated] = useState("");
   const [rateLoading, setRateLoading] = useState(true);
   const [rateError, setRateError] = useState("");
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [installHelp, setInstallHelp] = useState(false);
+  const [installed, setInstalled] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   const language = useMemo(() => LANGUAGES.find((item) => item.code === languageCode) ?? LANGUAGES[0], [languageCode]);
   const currency = useMemo(() => CURRENCIES.find((item) => item.code === currencyCode) ?? CURRENCIES[0], [currencyCode]);
   const sourceText = activeSide === "left" ? leftText : rightText;
+
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker.register("/sw.js");
+    }
+    const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+    setInstalled(standalone);
+    const onInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPromptEvent);
+    };
+    const onInstalled = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+      setInstallHelp(false);
+    };
+    window.addEventListener("beforeinstallprompt", onInstallPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onInstallPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
 
   useEffect(() => {
     if (!sourceText.trim()) {
@@ -281,6 +312,16 @@ export default function Home() {
     }
   };
 
+  const installApp = async () => {
+    if (!installPrompt) {
+      setInstallHelp(true);
+      return;
+    }
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    if (choice.outcome === "accepted") setInstallPrompt(null);
+  };
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -288,8 +329,22 @@ export default function Home() {
           <span className="brand-mark"><Sparkles size={19} strokeWidth={2.2} /></span>
           <span>译刻</span>
         </a>
-        <span className="status-pill"><i /> 实时翻译已就绪</span>
+        <div className="topbar-actions">
+          <span className="status-pill"><i /> 实时翻译已就绪</span>
+          {!installed && <button className="install-button" onClick={installApp}><Download size={15} /> 安装应用</button>}
+          {installed && <span className="installed-pill"><Check size={14} /> 已安装</span>}
+        </div>
       </header>
+
+      {installHelp && (
+        <div className="install-guide" role="dialog" aria-label="安装译刻">
+          <div>
+            <span className="guide-icon"><Download size={19} /></span>
+            <p><b>把译刻安装到设备</b><small>iPhone/iPad：点浏览器“分享”→“添加到主屏幕”；电脑或安卓：打开浏览器菜单，选择“安装应用”。</small></p>
+          </div>
+          <button onClick={() => setInstallHelp(false)} aria-label="关闭安装说明"><X size={17} /></button>
+        </div>
+      )}
 
       <section className="hero-copy">
         <p className="eyebrow">TRANSLATE IN THE MOMENT</p>

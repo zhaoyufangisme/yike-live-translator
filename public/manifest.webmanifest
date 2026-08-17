@@ -1,0 +1,20 @@
+{
+  "name": "译刻 — 实时翻译与汇率换算",
+  "short_name": "译刻",
+  "description": "外语与中文实时互译、图片文字识别、语音输入和实时汇率换算。",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f3ed",
+  "theme_color": "#2d8f78",
+  "lang": "zh-CN",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

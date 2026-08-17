@@ -12,11 +12,12 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title,
     description,
+    manifest: "/manifest.webmanifest",
     openGraph: { title, description, type: "website", images: [{ url: image, width: 1536, height: 864, alt: "译刻 — 所想，即刻相通" }] },
     twitter: { card: "summary_large_image", title, description, images: [image] },
   };
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="zh-CN"><body>{children}</body></html>;
+  return <html lang="zh-CN"><head><meta name="theme-color" content="#f4f3ed" /><meta name="apple-mobile-web-app-capable" content="yes" /><meta name="apple-mobile-web-app-status-bar-style" content="default" /><link rel="apple-touch-icon" href="/favicon.svg" /></head><body>{children}</body></html>;
 }
