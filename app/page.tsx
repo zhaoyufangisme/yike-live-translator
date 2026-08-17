@@ -80,7 +80,12 @@ const PREFERRED_CURRENCY_KEY = "yike-preferred-currency";
 const PREFERRED_LANGUAGE_KEY = "yike-preferred-language";
 const MYMEMORY_EMAIL_KEY = "yike-mymemory-email";
 const THEME_KEY = "yike-theme";
+const MYMEMORY_USAGE_KEY = "yike-mymemory-daily-usage";
 const TRANSLATION_CHUNK_BYTES = 450;
+
+function todayKey() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).format(new Date());
+}
 
 function decodeEntities(value: string) {
   return value
@@ -111,7 +116,7 @@ function chunkTranslationText(text: string) {
   return chunks;
 }
 
-async function translateText(text: string, source: string, target: string, email: string, signal: AbortSignal) {
+async function translateText(text: string, source: string, target: string, email: string, signal: AbortSignal, onUsage: (characters: number, quotaFinished: boolean) => void) {
   const translated: string[] = [];
   for (const chunk of chunkTranslationText(text)) {
     if (chunk === "\n") {
@@ -125,9 +130,12 @@ async function translateText(text: string, source: string, target: string, email
     const response = await fetch(url, { headers: { Accept: "application/json" }, signal });
     if (!response.ok) throw new Error("翻译服务暂时不可用");
     const data = (await response.json()) as {
+      quotaFinished?: boolean;
       responseStatus?: number;
       responseData?: { translatedText?: string };
     };
+    onUsage(Array.from(chunk).length, Boolean(data.quotaFinished));
+    if (data.quotaFinished) throw new Error("今日 MyMemory 额度已用尽");
     if (data.responseStatus && data.responseStatus >= 400) throw new Error("翻译请求已被拒绝");
     translated.push(decodeEntities(data.responseData?.translatedText ?? ""));
   }
@@ -165,6 +173,8 @@ export default function Home() {
   const [emailDraft, setEmailDraft] = useState("");
   const [settingsMessage, setSettingsMessage] = useState("");
   const [theme, setTheme] = useState<Theme>("mint");
+  const [quotaUsed, setQuotaUsed] = useState(0);
+  const [quotaFinished, setQuotaFinished] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
@@ -179,6 +189,7 @@ export default function Home() {
     const savedEmail = window.localStorage.getItem(MYMEMORY_EMAIL_KEY) ?? "";
     const savedTheme = (window.localStorage.getItem(THEME_KEY) as Theme | null) ?? "mint";
     const savedLanguage = window.localStorage.getItem(PREFERRED_LANGUAGE_KEY);
+    const savedUsage = window.localStorage.getItem(MYMEMORY_USAGE_KEY);
     setMyMemoryEmail(savedEmail);
     setEmailDraft(savedEmail);
     if (["mint", "ocean", "sunset"].includes(savedTheme)) {
@@ -186,6 +197,37 @@ export default function Home() {
       document.documentElement.dataset.theme = savedTheme;
     }
     if (savedLanguage && LANGUAGES.some((item) => item.code === savedLanguage)) setLanguageCode(savedLanguage);
+    if (savedUsage) {
+      try {
+        const parsed = JSON.parse(savedUsage) as { date?: string; used?: number; finished?: boolean };
+        if (parsed.date === todayKey()) {
+          setQuotaUsed(typeof parsed.used === "number" ? parsed.used : 0);
+          setQuotaFinished(Boolean(parsed.finished));
+        } else {
+          window.localStorage.removeItem(MYMEMORY_USAGE_KEY);
+        }
+      } catch {
+        window.localStorage.removeItem(MYMEMORY_USAGE_KEY);
+      }
+    }
+  }, []);
+
+  const quotaLimit = myMemoryEmail ? 50000 : 5000;
+  const quotaRemaining = quotaFinished ? 0 : Math.max(0, quotaLimit - quotaUsed);
+
+  const recordQuotaUsage = useCallback((characters: number, finished: boolean) => {
+    const date = todayKey();
+    let previous = 0;
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(MYMEMORY_USAGE_KEY) ?? "{}") as { date?: string; used?: number };
+      if (saved.date === date && typeof saved.used === "number") previous = saved.used;
+    } catch {
+      previous = 0;
+    }
+    const used = previous + characters;
+    setQuotaUsed(used);
+    setQuotaFinished(finished);
+    window.localStorage.setItem(MYMEMORY_USAGE_KEY, JSON.stringify({ date, used, finished }));
   }, []);
 
   useEffect(() => {
@@ -214,6 +256,7 @@ export default function Home() {
           activeSide === "left" ? "zh-CN" : languageCode,
           myMemoryEmail,
           controller.signal,
+          recordQuotaUsage,
         );
         if (activeSide === "left") setRightText(translatedText);
         else setLeftText(translatedText);
@@ -228,7 +271,7 @@ export default function Home() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [activeSide, languageCode, myMemoryEmail, sourceText]);
+  }, [activeSide, languageCode, myMemoryEmail, recordQuotaUsage, sourceText]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -411,6 +454,7 @@ export default function Home() {
         <div className="topbar-actions">
           <span className="status-pill"><i /> 实时翻译已就绪</span>
           <button className="user-avatar" onClick={() => setSettingsOpen(true)} aria-label="打开用户设置"><UserRound size={19} /></button>
+          <button className="quota-pill" onClick={() => setSettingsOpen(true)} aria-label={`参考剩余额度 ${quotaRemaining.toLocaleString()} 字符`}><span>参考剩余</span><b>{quotaRemaining.toLocaleString()}</b></button>
         </div>
       </header>
 
@@ -428,8 +472,10 @@ export default function Home() {
             <section className="settings-section">
               <div className="settings-title"><Mail size={16} /><b>MyMemory 翻译额度</b></div>
               <div className="quota-grid"><div className={!myMemoryEmail ? "active" : ""}><b>5,000</b><span>字符/天</span><small>匿名使用，不填邮箱</small></div><div className={myMemoryEmail ? "active" : ""}><b>50,000</b><span>字符/天</span><small>填写有效邮箱后</small></div></div>
+              <div className="quota-live"><span><i /> 本机今日参考剩余</span><b>{quotaRemaining.toLocaleString()} 字符</b></div>
               <label className="email-setting"><span>MyMemory 联系邮箱（可选）</span><div><input type="email" value={emailDraft} onChange={(event) => setEmailDraft(event.target.value)} placeholder="your@email.com" autoComplete="email" /><button onClick={saveMyMemoryEmail}>保存</button></div></label>
               <p className="privacy-note"><ShieldCheck size={14} /> 邮箱只保存在当前设备，并由此设备直接发送给 MyMemory；译刻不接收、不上传。</p>
+              <p className="quota-disclaimer">仅供参考：按本机译刻今天实际发送的字符计算。MyMemory 不提供精确余额接口；同一网络或其他软件产生的用量不会显示在这里，服务方实际剩余额度可能更少。</p>
               {settingsMessage && <p className="settings-message">{settingsMessage}</p>}
             </section>
 

@@ -28,6 +28,10 @@ button { color: inherit; }
 .topbar-actions { display: flex; align-items: center; gap: 9px; }
 .user-avatar { width: 38px; height: 38px; display: grid; place-items: center; border: 0; border-radius: 50%; color: white; background: var(--mint); cursor: pointer; box-shadow: 0 7px 18px rgba(45,143,120,.2); }
 .user-avatar:hover { background: var(--mint-deep); }
+.quota-pill { height: 38px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 1px; padding: 0 11px; border: 1px solid rgba(23,32,37,.08); border-radius: 11px; background: rgba(255,255,255,.72); cursor: pointer; }
+.quota-pill span { color: var(--muted); font-size: 8px; }
+.quota-pill b { color: var(--mint-deep); font-size: 11px; line-height: 1; }
+.quota-pill:hover { border-color: #9bc9bb; background: var(--mint-soft); }
 .settings-backdrop { position: fixed; z-index: 60; inset: 0; display: flex; justify-content: flex-end; background: rgba(18,29,33,.32); backdrop-filter: blur(4px); }
 .settings-panel { width: min(430px, 100vw); height: 100%; overflow-y: auto; padding: 22px; background: #f9faf8; box-shadow: -24px 0 70px rgba(18,29,33,.2); animation: panel-in .22s ease-out; }
 .settings-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
@@ -53,6 +57,10 @@ button { color: inherit; }
 .quota-grid b { color: var(--mint-deep); font-size: 20px; }
 .quota-grid span { color: var(--muted); font-size: 9px; }
 .quota-grid small { grid-column: 1 / -1; color: var(--muted); font-size: 9px; }
+.quota-live { display: flex; align-items: center; justify-content: space-between; margin: -2px 0 13px; padding: 10px 12px; border-radius: 10px; color: var(--mint-deep); background: var(--mint-soft); }
+.quota-live span { display: flex; align-items: center; gap: 6px; font-size: 9px; }
+.quota-live i { width: 6px; height: 6px; border-radius: 50%; background: #46a98e; box-shadow: 0 0 0 3px rgba(70,169,142,.12); }
+.quota-live b { font-size: 12px; }
 .email-setting { display: block; color: #4f5d5d; font-size: 10px; }
 .email-setting > div { display: flex; gap: 8px; margin-top: 7px; }
 .email-setting input { min-width: 0; flex: 1; height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; outline: 0; background: white; }
@@ -60,6 +68,7 @@ button { color: inherit; }
 .email-setting button { padding: 0 15px; border: 0; border-radius: 10px; color: white; background: var(--mint); cursor: pointer; }
 .privacy-note { display: flex; align-items: flex-start; gap: 6px; margin: 10px 0 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
 .privacy-note svg { flex: 0 0 auto; color: var(--mint); }
+.quota-disclaimer { margin: 8px 0 0; padding: 9px 10px; color: #7e7466; background: #f6f1e8; border-radius: 8px; font-size: 8px; line-height: 1.55; }
 .settings-message { margin: 9px 0 0; padding: 8px 10px; color: var(--mint-deep); background: var(--mint-soft); border-radius: 8px; font-size: 10px; }
 .theme-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .theme-options button { display: flex; align-items: center; justify-content: center; gap: 6px; height: 38px; border: 1px solid var(--line); border-radius: 10px; background: white; cursor: pointer; font-size: 10px; }
@@ -149,6 +158,7 @@ footer span { display: flex; align-items: center; gap: 6px; }
   .topbar { height: 68px; }
   .status-pill { display: none; }
   .user-avatar { width: 36px; height: 36px; }
+  .quota-pill { height: 36px; padding: 0 9px; }
   .settings-panel { padding: 18px; }
   .hero-copy { margin: 44px auto 26px; }
   .hero-copy h1 { font-size: 40px; }
