@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
   try {
     const response = await fetch(`https://open.er-api.com/v6/latest/${base}`, {
       headers: { Accept: "application/json" },
-      next: { revalidate: 1800 },
+      next: { revalidate: 3600 },
     });
     if (!response.ok) throw new Error("Rate provider unavailable");
     const data = (await response.json()) as { result?: string; rates?: Record<string, number>; time_last_update_utc?: string };

@@ -75,6 +75,58 @@ const CURRENCIES = [
 ];
 
 const PREFERRED_CURRENCY_KEY = "yike-preferred-currency";
+const TRANSLATION_CHUNK_BYTES = 450;
+
+function decodeEntities(value: string) {
+  return value
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#39;", "'")
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">");
+}
+
+function chunkTranslationText(text: string) {
+  const encoder = new TextEncoder();
+  const chunks: string[] = [];
+  const lines = text.split("\n");
+  for (const [lineIndex, line] of lines.entries()) {
+    let current = "";
+    for (const character of line) {
+      if (current && encoder.encode(current + character).length > TRANSLATION_CHUNK_BYTES) {
+        chunks.push(current);
+        current = character;
+      } else {
+        current += character;
+      }
+    }
+    if (current) chunks.push(current);
+    if (lineIndex < lines.length - 1) chunks.push("\n");
+  }
+  return chunks;
+}
+
+async function translateText(text: string, source: string, target: string, signal: AbortSignal) {
+  const translated: string[] = [];
+  for (const chunk of chunkTranslationText(text)) {
+    if (chunk === "\n") {
+      translated.push(chunk);
+      continue;
+    }
+    const url = new URL("https://api.mymemory.translated.net/get");
+    url.searchParams.set("q", chunk);
+    url.searchParams.set("langpair", `${source}|${target}`);
+    const response = await fetch(url, { headers: { Accept: "application/json" }, signal });
+    if (!response.ok) throw new Error("翻译服务暂时不可用");
+    const data = (await response.json()) as {
+      responseStatus?: number;
+      responseData?: { translatedText?: string };
+    };
+    if (data.responseStatus && data.responseStatus >= 400) throw new Error("翻译请求已被拒绝");
+    translated.push(decodeEntities(data.responseData?.translatedText ?? ""));
+  }
+  return translated.join("");
+}
 
 function formatMoney(value: number) {
   return Number.isFinite(value) ? value.toLocaleString("zh-CN", { maximumFractionDigits: 4 }) : "";
@@ -155,20 +207,14 @@ export default function Home() {
       setTranslating(true);
       setTranslationError("");
       try {
-        const response = await fetch("/api/translate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: sourceText,
-            source: activeSide === "left" ? languageCode : "zh-CN",
-            target: activeSide === "left" ? "zh-CN" : languageCode,
-          }),
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error("翻译服务暂时不可用");
-        const data = (await response.json()) as { translatedText?: string };
-        if (activeSide === "left") setRightText(data.translatedText ?? "");
-        else setLeftText(data.translatedText ?? "");
+        const translatedText = await translateText(
+          sourceText,
+          activeSide === "left" ? languageCode : "zh-CN",
+          activeSide === "left" ? "zh-CN" : languageCode,
+          controller.signal,
+        );
+        if (activeSide === "left") setRightText(translatedText);
+        else setLeftText(translatedText);
       } catch (error) {
         if ((error as Error).name !== "AbortError") setTranslationError("暂时无法连接翻译服务，请稍后重试");
       } finally {
@@ -455,6 +501,7 @@ export default function Home() {
             <label><span>¥</span><input value={cnyAmount} onChange={(event) => changeCnyAmount(event.target.value)} inputMode="decimal" aria-label="人民币金额" /></label>
           </div>
           {rateError && <div className="inline-message rate-error">{rateError}</div>}
+          <a className="rate-attribution" href="https://www.exchangerate-api.com" target="_blank" rel="noreferrer">Rates By Exchange Rate API</a>
         </div>
       </section>
 
