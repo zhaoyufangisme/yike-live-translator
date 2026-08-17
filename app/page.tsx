@@ -161,7 +161,7 @@ export default function Home() {
   const [copied, setCopied] = useState<Side | null>(null);
   const [listening, setListening] = useState<Side | null>(null);
   const [speechMessage, setSpeechMessage] = useState("");
-  const [image, setImage] = useState<{ name: string; url: string } | null>(null);
+  const [image, setImage] = useState<{ name: string; url: string; side: Side } | null>(null);
   const [ocrProgress, setOcrProgress] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const [currencyCode, setCurrencyCode] = useState("USD");
@@ -181,7 +181,8 @@ export default function Home() {
   const [quotaFinished, setQuotaFinished] = useState(false);
   const [translationMode, setTranslationMode] = useState<TranslationMode>("instant");
   const [manualRequest, setManualRequest] = useState<{ id: number; side: Side; text: string } | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const leftFileInputRef = useRef<HTMLInputElement>(null);
+  const rightFileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   const language = useMemo(() => LANGUAGES.find((item) => item.code === languageCode) ?? LANGUAGES[0], [languageCode]);
@@ -383,7 +384,7 @@ export default function Home() {
     recognition.start();
   };
 
-  const processImage = useCallback(async (file?: File) => {
+  const processImage = useCallback(async (side: Side, file?: File) => {
     if (!file || !file.type.startsWith("image/")) return;
     if (file.size > 10 * 1024 * 1024) {
       setTranslationError("图片不能超过 10MB");
@@ -391,36 +392,38 @@ export default function Home() {
     }
     if (image) URL.revokeObjectURL(image.url);
     const imageUrl = URL.createObjectURL(file);
-    setImage({ name: file.name, url: imageUrl });
+    setImage({ name: file.name, url: imageUrl, side });
     setOcrProgress(0);
     setTranslationError("");
     try {
       const { createWorker } = await import("tesseract.js");
-      const worker = await createWorker(language.ocr, 1, {
+      const worker = await createWorker(side === "left" ? language.ocr : "chi_sim", 1, {
         logger: (message) => {
           if (typeof message.progress === "number") setOcrProgress(Math.round(message.progress * 100));
         },
       });
       const result = await worker.recognize(file);
       await worker.terminate();
-      handleText("left", result.data.text.trim());
-      if (!result.data.text.trim()) setTranslationError("没有识别到清晰文字，请尝试更清楚的图片");
+      const recognizedText = result.data.text.trim();
+      handleText(side, recognizedText);
+      if (translationMode === "enter" && recognizedText) setManualRequest({ id: Date.now(), side, text: recognizedText });
+      if (!recognizedText) setTranslationError("没有识别到清晰文字，请尝试更清楚的图片");
     } catch {
       setTranslationError("图片文字识别失败，请检查网络后重试");
     } finally {
       setOcrProgress(null);
     }
-  }, [image, language.ocr]);
+  }, [image, language.ocr, translationMode]);
 
-  const onFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    void processImage(event.target.files?.[0]);
+  const onFileChange = (side: Side, event: ChangeEvent<HTMLInputElement>) => {
+    void processImage(side, event.target.files?.[0]);
     event.target.value = "";
   };
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setDragging(false);
-    void processImage(event.dataTransfer.files?.[0]);
+    void processImage("left", event.dataTransfer.files?.[0]);
   };
 
   const changeForeignAmount = (value: string) => {
@@ -552,7 +555,7 @@ export default function Home() {
         <div className="translation-grid">
           <div className={`translation-pane source-pane ${dragging ? "dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
             <textarea value={leftText} onChange={(event) => handleText("left", event.target.value)} onKeyDown={(event) => handleTranslationKeyDown("left", event)} aria-label={`输入${language.name}`} placeholder="输入文字，或试试语音和图片…" />
-            {image && (
+            {image?.side === "left" && (
               <div className="image-chip">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={image.url} alt="待识别图片预览" />
@@ -564,22 +567,33 @@ export default function Home() {
             {dragging && <div className="drop-overlay"><Upload size={24} /><b>松开即可识别图片</b></div>}
             <div className="pane-actions">
               <button className={listening === "left" ? "active" : ""} onClick={() => startListening("left")} aria-label="外语语音输入"><Mic size={19} /></button>
-              <button onClick={() => fileInputRef.current?.click()} aria-label="上传图片"><ImagePlus size={19} /></button>
+              <button onClick={() => leftFileInputRef.current?.click()} aria-label="上传外语图片"><ImagePlus size={19} /></button>
               <button onClick={() => speak("left")} aria-label="朗读外语"><Volume2 size={19} /></button>
               <button onClick={() => copyText("left")} aria-label="复制外语">{copied === "left" ? <Check size={18} /> : <Copy size={18} />}</button>
-              <input ref={fileInputRef} type="file" accept="image/*" onChange={onFileChange} hidden />
+              <input ref={leftFileInputRef} type="file" accept="image/*" onChange={(event) => onFileChange("left", event)} hidden />
               <span>{leftText.length.toLocaleString()} / 5,000</span>
             </div>
           </div>
 
           <div className="translation-pane result-pane">
             <textarea value={rightText} onChange={(event) => handleText("right", event.target.value)} onKeyDown={(event) => handleTranslationKeyDown("right", event)} aria-label="输入中文" placeholder="中文翻译会实时显示在这里" />
+            {image?.side === "right" && (
+              <div className="image-chip">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={image.url} alt="待识别中文图片预览" />
+                <span>{ocrProgress === null ? image.name : `正在识别中文 ${ocrProgress}%`}</span>
+                {ocrProgress !== null && <LoaderCircle size={14} className="spin" />}
+                <button aria-label="移除中文图片" onClick={() => { URL.revokeObjectURL(image.url); setImage(null); }}><X size={14} /></button>
+              </div>
+            )}
             {translating && <span className="translating-label"><LoaderCircle size={13} className="spin" /> 翻译中</span>}
             <div className="pane-actions">
               <button className={listening === "right" ? "active" : ""} onClick={() => startListening("right")} aria-label="中文语音输入"><Mic size={19} /></button>
+              <button onClick={() => rightFileInputRef.current?.click()} aria-label="上传中文图片"><ImagePlus size={19} /></button>
               <button onClick={() => speak("right")} aria-label="朗读中文"><Volume2 size={19} /></button>
               <button onClick={() => copyText("right")} aria-label="复制中文">{copied === "right" ? <Check size={18} /> : <Copy size={18} />}</button>
               <button onClick={clearAll} aria-label="清空内容"><Trash2 size={18} /></button>
+              <input ref={rightFileInputRef} type="file" accept="image/*" onChange={(event) => onFileChange("right", event)} hidden />
               <span>{rightText.length.toLocaleString()} / 5,000</span>
             </div>
           </div>
