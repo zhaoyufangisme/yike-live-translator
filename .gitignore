@@ -2,6 +2,11 @@
 
 # dependencies
 /node_modules
+/desktop/node_modules/
+/desktop/release/
+/mobile/node_modules/
+/mobile/android/
+/mobile/Yike-Android.apk
 /.pnp
 .pnp.*
 .yarn/*

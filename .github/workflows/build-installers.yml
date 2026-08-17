@@ -1,0 +1,81 @@
+name: Build installers
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+      - name: Build Windows installer
+        working-directory: desktop
+        run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Yike-Windows
+          path: desktop/release/*.exe
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+      - name: Create Android project
+        working-directory: mobile
+        run: npx cap add android
+      - name: Build Android APK
+        working-directory: mobile/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../../Yike-Android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Yike-Android
+          path: mobile/Yike-Android.apk
+
+  release:
+    name: Publish download release
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "build-${{ github.run_number }}" artifacts/* \
+            --repo "${{ github.repository }}" \
+            --title "译刻安装包 build-${{ github.run_number }}" \
+            --notes "Windows 请下载 Yike-Setup 文件；安卓手机下载 Yike-Android.apk。两个版本都需要联网使用。" \
+            --latest
