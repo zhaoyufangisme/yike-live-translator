@@ -74,6 +74,8 @@ const CURRENCIES = [
   { code: "CAD", country: "加拿大", symbol: "C$", flag: "🇨🇦" },
 ];
 
+const PREFERRED_CURRENCY_KEY = "yike-preferred-currency";
+
 function formatMoney(value: number) {
   return Number.isFinite(value) ? value.toLocaleString("zh-CN", { maximumFractionDigits: 4 }) : "";
 }
@@ -131,6 +133,13 @@ export default function Home() {
       window.removeEventListener("beforeinstallprompt", onInstallPrompt);
       window.removeEventListener("appinstalled", onInstalled);
     };
+  }, []);
+
+  useEffect(() => {
+    const savedCurrency = window.localStorage.getItem(PREFERRED_CURRENCY_KEY);
+    if (savedCurrency && CURRENCIES.some((item) => item.code === savedCurrency)) {
+      setCurrencyCode(savedCurrency);
+    }
   }, []);
 
   useEffect(() => {
@@ -312,6 +321,12 @@ export default function Home() {
     }
   };
 
+  const chooseCurrency = (code: string) => {
+    setCurrencyCode(code);
+    window.localStorage.setItem(PREFERRED_CURRENCY_KEY, code);
+    setCurrencyOpen(false);
+  };
+
   const installApp = async () => {
     if (!installPrompt) {
       setInstallHelp(true);
@@ -424,7 +439,7 @@ export default function Home() {
               {currencyOpen && (
                 <div className="select-menu currency-menu">
                   {CURRENCIES.map((item) => (
-                    <button key={item.code} onClick={() => { setCurrencyCode(item.code); setCurrencyOpen(false); }} className={item.code === currencyCode ? "selected" : ""}>
+                    <button key={item.code} onClick={() => chooseCurrency(item.code)} className={item.code === currencyCode ? "selected" : ""}>
                       <span className="flag">{item.flag}</span><span><b>{item.country}</b><small>{item.code}</small></span>{item.code === currencyCode && <Check size={15} />}
                     </button>
                   ))}
