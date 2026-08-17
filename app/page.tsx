@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Clipboard,
   Copy,
+  CornerDownLeft,
   ImagePlus,
   KeyRound,
   LoaderCircle,
@@ -20,11 +21,13 @@ import {
   UserRound,
   Volume2,
   X,
+  Zap,
 } from "lucide-react";
-import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Side = "left" | "right";
 type Theme = "mint" | "ocean" | "sunset";
+type TranslationMode = "instant" | "enter";
 type SpeechRecognitionEventLike = { results: { [index: number]: { [index: number]: { transcript: string } } } };
 type SpeechRecognitionLike = {
   lang: string;
@@ -81,6 +84,7 @@ const PREFERRED_LANGUAGE_KEY = "yike-preferred-language";
 const MYMEMORY_EMAIL_KEY = "yike-mymemory-email";
 const THEME_KEY = "yike-theme";
 const MYMEMORY_USAGE_KEY = "yike-mymemory-daily-usage";
+const TRANSLATION_MODE_KEY = "yike-translation-mode";
 const TRANSLATION_CHUNK_BYTES = 450;
 
 function todayKey() {
@@ -175,12 +179,16 @@ export default function Home() {
   const [theme, setTheme] = useState<Theme>("mint");
   const [quotaUsed, setQuotaUsed] = useState(0);
   const [quotaFinished, setQuotaFinished] = useState(false);
+  const [translationMode, setTranslationMode] = useState<TranslationMode>("instant");
+  const [manualRequest, setManualRequest] = useState<{ id: number; side: Side; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   const language = useMemo(() => LANGUAGES.find((item) => item.code === languageCode) ?? LANGUAGES[0], [languageCode]);
   const currency = useMemo(() => CURRENCIES.find((item) => item.code === currencyCode) ?? CURRENCIES[0], [currencyCode]);
   const sourceText = activeSide === "left" ? leftText : rightText;
+  const translationText = translationMode === "instant" ? sourceText : manualRequest?.text ?? "";
+  const translationSide = translationMode === "instant" ? activeSide : manualRequest?.side ?? activeSide;
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -190,6 +198,7 @@ export default function Home() {
     const savedTheme = (window.localStorage.getItem(THEME_KEY) as Theme | null) ?? "mint";
     const savedLanguage = window.localStorage.getItem(PREFERRED_LANGUAGE_KEY);
     const savedUsage = window.localStorage.getItem(MYMEMORY_USAGE_KEY);
+    const savedTranslationMode = window.localStorage.getItem(TRANSLATION_MODE_KEY);
     setMyMemoryEmail(savedEmail);
     setEmailDraft(savedEmail);
     if (["mint", "ocean", "sunset"].includes(savedTheme)) {
@@ -197,6 +206,7 @@ export default function Home() {
       document.documentElement.dataset.theme = savedTheme;
     }
     if (savedLanguage && LANGUAGES.some((item) => item.code === savedLanguage)) setLanguageCode(savedLanguage);
+    if (savedTranslationMode === "instant" || savedTranslationMode === "enter") setTranslationMode(savedTranslationMode);
     if (savedUsage) {
       try {
         const parsed = JSON.parse(savedUsage) as { date?: string; used?: number; finished?: boolean };
@@ -238,8 +248,9 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!sourceText.trim()) {
-      if (activeSide === "left") setRightText("");
+    if (translationMode === "enter" && !manualRequest) return;
+    if (!translationText.trim()) {
+      if (translationSide === "left") setRightText("");
       else setLeftText("");
       setTranslationError("");
       return;
@@ -251,27 +262,27 @@ export default function Home() {
       setTranslationError("");
       try {
         const translatedText = await translateText(
-          sourceText,
-          activeSide === "left" ? languageCode : "zh-CN",
-          activeSide === "left" ? "zh-CN" : languageCode,
+          translationText,
+          translationSide === "left" ? languageCode : "zh-CN",
+          translationSide === "left" ? "zh-CN" : languageCode,
           myMemoryEmail,
           controller.signal,
           recordQuotaUsage,
         );
-        if (activeSide === "left") setRightText(translatedText);
+        if (translationSide === "left") setRightText(translatedText);
         else setLeftText(translatedText);
       } catch (error) {
         if ((error as Error).name !== "AbortError") setTranslationError("暂时无法连接翻译服务，请稍后重试");
       } finally {
         if (!controller.signal.aborted) setTranslating(false);
       }
-    }, 550);
+    }, translationMode === "instant" ? 550 : 0);
 
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [activeSide, languageCode, myMemoryEmail, recordQuotaUsage, sourceText]);
+  }, [languageCode, manualRequest, myMemoryEmail, recordQuotaUsage, translationMode, translationSide, translationText]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -304,6 +315,20 @@ export default function Home() {
     setActiveSide(side);
     if (side === "left") setLeftText(value.slice(0, 5000));
     else setRightText(value.slice(0, 5000));
+  };
+
+  const chooseTranslationMode = (mode: TranslationMode) => {
+    setTranslationMode(mode);
+    setManualRequest(null);
+    window.localStorage.setItem(TRANSLATION_MODE_KEY, mode);
+  };
+
+  const handleTranslationKeyDown = (side: Side, event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (translationMode !== "enter" || event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    const text = side === "left" ? leftText : rightText;
+    setActiveSide(side);
+    setManualRequest({ id: Date.now(), side, text });
   };
 
   const copyText = async (side: Side) => {
@@ -515,9 +540,18 @@ export default function Home() {
           <div className="language-fixed">中文 <span>固定</span></div>
         </div>
 
+        <div className="translation-mode-bar">
+          <span>翻译方式</span>
+          <div role="group" aria-label="选择翻译方式">
+            <button className={translationMode === "instant" ? "selected" : ""} onClick={() => chooseTranslationMode("instant")}><Zap size={13} /> 输入后翻译</button>
+            <button className={translationMode === "enter" ? "selected" : ""} onClick={() => chooseTranslationMode("enter")}><CornerDownLeft size={13} /> 回车后翻译</button>
+          </div>
+          <small>{translationMode === "enter" ? "Shift + Enter 可换行" : "停止输入后自动翻译"}</small>
+        </div>
+
         <div className="translation-grid">
           <div className={`translation-pane source-pane ${dragging ? "dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
-            <textarea value={leftText} onChange={(event) => handleText("left", event.target.value)} aria-label={`输入${language.name}`} placeholder="输入文字，或试试语音和图片…" />
+            <textarea value={leftText} onChange={(event) => handleText("left", event.target.value)} onKeyDown={(event) => handleTranslationKeyDown("left", event)} aria-label={`输入${language.name}`} placeholder="输入文字，或试试语音和图片…" />
             {image && (
               <div className="image-chip">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -539,7 +573,7 @@ export default function Home() {
           </div>
 
           <div className="translation-pane result-pane">
-            <textarea value={rightText} onChange={(event) => handleText("right", event.target.value)} aria-label="输入中文" placeholder="中文翻译会实时显示在这里" />
+            <textarea value={rightText} onChange={(event) => handleText("right", event.target.value)} onKeyDown={(event) => handleTranslationKeyDown("right", event)} aria-label="输入中文" placeholder="中文翻译会实时显示在这里" />
             {translating && <span className="translating-label"><LoaderCircle size={13} className="spin" /> 翻译中</span>}
             <div className="pane-actions">
               <button className={listening === "right" ? "active" : ""} onClick={() => startListening("right")} aria-label="中文语音输入"><Mic size={19} /></button>
