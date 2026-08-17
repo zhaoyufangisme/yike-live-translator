@@ -6,23 +6,25 @@ import {
   ChevronDown,
   Clipboard,
   Copy,
-  Download,
   ImagePlus,
+  KeyRound,
   LoaderCircle,
+  Mail,
   Mic,
+  Palette,
+  Settings,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Upload,
+  UserRound,
   Volume2,
   X,
 } from "lucide-react";
 import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Side = "left" | "right";
-type InstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-};
+type Theme = "mint" | "ocean" | "sunset";
 type SpeechRecognitionEventLike = { results: { [index: number]: { [index: number]: { transcript: string } } } };
 type SpeechRecognitionLike = {
   lang: string;
@@ -75,6 +77,9 @@ const CURRENCIES = [
 ];
 
 const PREFERRED_CURRENCY_KEY = "yike-preferred-currency";
+const PREFERRED_LANGUAGE_KEY = "yike-preferred-language";
+const MYMEMORY_EMAIL_KEY = "yike-mymemory-email";
+const THEME_KEY = "yike-theme";
 const TRANSLATION_CHUNK_BYTES = 450;
 
 function decodeEntities(value: string) {
@@ -106,7 +111,7 @@ function chunkTranslationText(text: string) {
   return chunks;
 }
 
-async function translateText(text: string, source: string, target: string, signal: AbortSignal) {
+async function translateText(text: string, source: string, target: string, email: string, signal: AbortSignal) {
   const translated: string[] = [];
   for (const chunk of chunkTranslationText(text)) {
     if (chunk === "\n") {
@@ -116,6 +121,7 @@ async function translateText(text: string, source: string, target: string, signa
     const url = new URL("https://api.mymemory.translated.net/get");
     url.searchParams.set("q", chunk);
     url.searchParams.set("langpair", `${source}|${target}`);
+    if (email.includes("@")) url.searchParams.set("de", email);
     const response = await fetch(url, { headers: { Accept: "application/json" }, signal });
     if (!response.ok) throw new Error("翻译服务暂时不可用");
     const data = (await response.json()) as {
@@ -154,9 +160,11 @@ export default function Home() {
   const [rateUpdated, setRateUpdated] = useState("");
   const [rateLoading, setRateLoading] = useState(true);
   const [rateError, setRateError] = useState("");
-  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
-  const [installHelp, setInstallHelp] = useState(false);
-  const [installed, setInstalled] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [myMemoryEmail, setMyMemoryEmail] = useState("");
+  const [emailDraft, setEmailDraft] = useState("");
+  const [settingsMessage, setSettingsMessage] = useState("");
+  const [theme, setTheme] = useState<Theme>("mint");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
@@ -168,23 +176,16 @@ export default function Home() {
     if ("serviceWorker" in navigator) {
       void navigator.serviceWorker.register("/sw.js");
     }
-    const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
-    setInstalled(standalone);
-    const onInstallPrompt = (event: Event) => {
-      event.preventDefault();
-      setInstallPrompt(event as InstallPromptEvent);
-    };
-    const onInstalled = () => {
-      setInstalled(true);
-      setInstallPrompt(null);
-      setInstallHelp(false);
-    };
-    window.addEventListener("beforeinstallprompt", onInstallPrompt);
-    window.addEventListener("appinstalled", onInstalled);
-    return () => {
-      window.removeEventListener("beforeinstallprompt", onInstallPrompt);
-      window.removeEventListener("appinstalled", onInstalled);
-    };
+    const savedEmail = window.localStorage.getItem(MYMEMORY_EMAIL_KEY) ?? "";
+    const savedTheme = (window.localStorage.getItem(THEME_KEY) as Theme | null) ?? "mint";
+    const savedLanguage = window.localStorage.getItem(PREFERRED_LANGUAGE_KEY);
+    setMyMemoryEmail(savedEmail);
+    setEmailDraft(savedEmail);
+    if (["mint", "ocean", "sunset"].includes(savedTheme)) {
+      setTheme(savedTheme);
+      document.documentElement.dataset.theme = savedTheme;
+    }
+    if (savedLanguage && LANGUAGES.some((item) => item.code === savedLanguage)) setLanguageCode(savedLanguage);
   }, []);
 
   useEffect(() => {
@@ -211,6 +212,7 @@ export default function Home() {
           sourceText,
           activeSide === "left" ? languageCode : "zh-CN",
           activeSide === "left" ? "zh-CN" : languageCode,
+          myMemoryEmail,
           controller.signal,
         );
         if (activeSide === "left") setRightText(translatedText);
@@ -226,7 +228,7 @@ export default function Home() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [activeSide, languageCode, sourceText]);
+  }, [activeSide, languageCode, myMemoryEmail, sourceText]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -234,13 +236,15 @@ export default function Home() {
       setRateLoading(true);
       setRateError("");
       try {
-        const response = await fetch(`/api/rates?base=${currencyCode}`, { signal: controller.signal });
+        const response = await fetch(`https://open.er-api.com/v6/latest/${currencyCode}`, { signal: controller.signal });
         if (!response.ok) throw new Error("rate unavailable");
-        const data = (await response.json()) as { rate: number; updated: string };
-        setRate(data.rate);
-        setRateUpdated(data.updated);
+        const data = (await response.json()) as { result?: string; rates?: Record<string, number>; time_last_update_utc?: string };
+        const nextRate = data.rates?.CNY;
+        if (data.result !== "success" || typeof nextRate !== "number") throw new Error("invalid rate");
+        setRate(nextRate);
+        setRateUpdated(data.time_last_update_utc ? new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(data.time_last_update_utc)) : "刚刚");
         const amount = Number(foreignAmount.replace(/,/g, ""));
-        if (Number.isFinite(amount)) setCnyAmount(formatMoney(amount * data.rate));
+        if (Number.isFinite(amount)) setCnyAmount(formatMoney(amount * nextRate));
       } catch (error) {
         if ((error as Error).name !== "AbortError") setRateError("汇率更新失败，请稍后重试");
       } finally {
@@ -373,14 +377,28 @@ export default function Home() {
     setCurrencyOpen(false);
   };
 
-  const installApp = async () => {
-    if (!installPrompt) {
-      setInstallHelp(true);
+  const chooseLanguage = (code: string) => {
+    setLanguageCode(code);
+    window.localStorage.setItem(PREFERRED_LANGUAGE_KEY, code);
+    setLanguageOpen(false);
+  };
+
+  const saveMyMemoryEmail = () => {
+    const normalized = emailDraft.trim();
+    if (normalized && !/^\S+@\S+\.\S+$/.test(normalized)) {
+      setSettingsMessage("请输入有效邮箱，或留空使用匿名额度");
       return;
     }
-    await installPrompt.prompt();
-    const choice = await installPrompt.userChoice;
-    if (choice.outcome === "accepted") setInstallPrompt(null);
+    setMyMemoryEmail(normalized);
+    if (normalized) window.localStorage.setItem(MYMEMORY_EMAIL_KEY, normalized);
+    else window.localStorage.removeItem(MYMEMORY_EMAIL_KEY);
+    setSettingsMessage(normalized ? "已保存在本机，当前额度约 50,000 字符/天" : "已切换为匿名额度：约 5,000 字符/天");
+  };
+
+  const chooseTheme = (nextTheme: Theme) => {
+    setTheme(nextTheme);
+    document.documentElement.dataset.theme = nextTheme;
+    window.localStorage.setItem(THEME_KEY, nextTheme);
   };
 
   return (
@@ -392,18 +410,36 @@ export default function Home() {
         </a>
         <div className="topbar-actions">
           <span className="status-pill"><i /> 实时翻译已就绪</span>
-          {!installed && <button className="install-button" onClick={installApp}><Download size={15} /> 安装应用</button>}
-          {installed && <span className="installed-pill"><Check size={14} /> 已安装</span>}
+          <button className="user-avatar" onClick={() => setSettingsOpen(true)} aria-label="打开用户设置"><UserRound size={19} /></button>
         </div>
       </header>
 
-      {installHelp && (
-        <div className="install-guide" role="dialog" aria-label="安装译刻">
-          <div>
-            <span className="guide-icon"><Download size={19} /></span>
-            <p><b>把译刻安装到设备</b><small>iPhone/iPad：点浏览器“分享”→“添加到主屏幕”；电脑或安卓：打开浏览器菜单，选择“安装应用”。</small></p>
-          </div>
-          <button onClick={() => setInstallHelp(false)} aria-label="关闭安装说明"><X size={17} /></button>
+      {settingsOpen && (
+        <div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false); }}>
+          <aside className="settings-panel" role="dialog" aria-modal="true" aria-label="用户设置">
+            <div className="settings-header"><div><span className="settings-avatar"><UserRound size={22} /></span><span><b>本机访客</b><small>无需登录 · 数据保存在此设备</small></span></div><button onClick={() => setSettingsOpen(false)} aria-label="关闭用户设置"><X size={18} /></button></div>
+
+            <section className="settings-section">
+              <div className="settings-title"><UserRound size={16} /><b>账户切换</b></div>
+              <button className="account-row selected"><span className="mini-avatar">访</span><span><b>本机访客</b><small>当前账户 · 无服务器账号</small></span><Check size={16} /></button>
+              <button className="account-row" disabled><span className="mini-avatar muted"><KeyRound size={14} /></span><span><b>API 账户</b><small>以后可连接 DeepSeek、豆包等自有 API</small></span><em>规划中</em></button>
+            </section>
+
+            <section className="settings-section">
+              <div className="settings-title"><Mail size={16} /><b>MyMemory 翻译额度</b></div>
+              <div className="quota-grid"><div className={!myMemoryEmail ? "active" : ""}><b>5,000</b><span>字符/天</span><small>匿名使用，不填邮箱</small></div><div className={myMemoryEmail ? "active" : ""}><b>50,000</b><span>字符/天</span><small>填写有效邮箱后</small></div></div>
+              <label className="email-setting"><span>MyMemory 联系邮箱（可选）</span><div><input type="email" value={emailDraft} onChange={(event) => setEmailDraft(event.target.value)} placeholder="your@email.com" autoComplete="email" /><button onClick={saveMyMemoryEmail}>保存</button></div></label>
+              <p className="privacy-note"><ShieldCheck size={14} /> 邮箱只保存在当前设备，并由此设备直接发送给 MyMemory；译刻不接收、不上传。</p>
+              {settingsMessage && <p className="settings-message">{settingsMessage}</p>}
+            </section>
+
+            <section className="settings-section">
+              <div className="settings-title"><Palette size={16} /><b>主题颜色</b></div>
+              <div className="theme-options">{([['mint','翡翠'],['ocean','海蓝'],['sunset','暖橙']] as [Theme,string][]).map(([value,label]) => <button key={value} className={theme === value ? `theme-${value} selected` : `theme-${value}`} onClick={() => chooseTheme(value)}><i />{label}{theme === value && <Check size={14} />}</button>)}</div>
+            </section>
+
+            <div className="settings-footer"><Settings size={14} /> 当前登录方式：无需登录。本机设置不会同步到其他设备。</div>
+          </aside>
         </div>
       )}
 
@@ -422,7 +458,7 @@ export default function Home() {
             {languageOpen && (
               <div className="select-menu language-menu">
                 {LANGUAGES.map((item) => (
-                  <button key={item.code} onClick={() => { setLanguageCode(item.code); setLanguageOpen(false); }} className={item.code === languageCode ? "selected" : ""}>
+                  <button key={item.code} onClick={() => chooseLanguage(item.code)} className={item.code === languageCode ? "selected" : ""}>
                     <span>{item.name}<small>{item.native}</small></span>{item.code === languageCode && <Check size={15} />}
                   </button>
                 ))}
