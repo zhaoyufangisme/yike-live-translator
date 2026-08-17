@@ -55,11 +55,12 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug
-          cp app/build/outputs/apk/debug/app-debug.apk ../../Yike-Android.apk
+          cp app/build/outputs/apk/debug/app-debug.apk ../Yike-Android.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Yike-Android
           path: mobile/Yike-Android.apk
+          if-no-files-found: error
 
   release:
     name: Publish download release
