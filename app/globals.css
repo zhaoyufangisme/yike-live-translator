@@ -99,6 +99,51 @@ button { color: inherit; }
 .translation-mode-bar button { height: 29px; display: flex; align-items: center; gap: 5px; padding: 0 10px; border: 0; border-radius: 8px; color: #65716f; background: transparent; font-size: 10px; cursor: pointer; }
 .translation-mode-bar button.selected { color: var(--mint-deep); background: white; box-shadow: 0 2px 8px rgba(31,44,40,.08); }
 .translation-mode-bar small { margin-left: auto; color: #98a19f; font-size: 9px; }
+.provider-bar { min-height: 52px; display: flex; align-items: center; gap: 12px; padding: 7px 24px; border-bottom: 1px solid var(--line); background: white; }
+.provider-bar > span { color: var(--muted); font-size: 10px; }
+.provider-select-wrap { min-width: 235px; }
+.provider-select { width: 100%; height: 36px; display: flex; align-items: center; gap: 7px; padding: 0 11px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfb; cursor: pointer; }
+.provider-select svg:first-child { color: var(--mint); }
+.provider-select b { font-size: 11px; }
+.provider-select small { color: var(--muted); font-size: 9px; }
+.provider-select svg:last-child { margin-left: auto; color: var(--muted); }
+.provider-menu { top: calc(100% + 6px); left: 0; min-width: 290px; }
+.provider-menu button > span { display: flex !important; flex-direction: column; align-items: flex-start !important; gap: 3px !important; }
+.executed-provider { flex: 1; color: var(--muted); font-size: 9px; }
+.provider-settings-button { display: flex; align-items: center; gap: 5px; padding: 7px 10px; border: 0; border-radius: 8px; color: var(--mint-deep); background: var(--mint-soft); font-size: 10px; cursor: pointer; }
+.provider-settings-list .account-row { cursor: pointer; }
+.provider-config-box { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: white; }
+.provider-config-box > b { font-size: 11px; }
+.provider-config-box > p, .provider-config-box > small { display: block; margin: 6px 0 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.api-fields { display: grid; gap: 9px; }
+.api-fields label { display: grid; gap: 5px; color: #4f5d5d; font-size: 9px; }
+.api-fields input { width: 100%; height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 9px; outline: 0; background: #fbfcfb; }
+.api-fields input:focus { border-color: var(--mint); }
+.settings-button-row { display: flex; gap: 8px; margin-top: 10px; }
+.settings-action { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; border: 0; border-radius: 9px; color: white; background: var(--mint); font-size: 9px; text-decoration: none; cursor: pointer; }
+.settings-action.secondary { color: var(--mint-deep); background: var(--mint-soft); }
+.settings-action:disabled { opacity: .55; cursor: wait; }
+.inline-refresh { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; border: 0; color: var(--mint-deep); background: transparent; font-size: 9px; cursor: pointer; }
+.quota-truth { display: flex; flex-direction: column; gap: 5px; padding: 12px; border: 1px solid #b8d9ce; border-radius: 11px; background: var(--mint-soft); }
+.quota-truth b { color: var(--mint-deep); font-size: 12px; }
+.quota-truth span { font-size: 10px; line-height: 1.5; }
+.quota-truth small { color: var(--muted); font-size: 8px; }
+.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 10px; }
+.toggle-row span { display: flex; flex-direction: column; gap: 3px; }
+.toggle-row small { color: var(--muted); font-size: 8px; }
+.toggle-row input { width: 34px; height: 18px; accent-color: var(--mint); }
+.history-actions, .version-row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; color: var(--muted); font-size: 9px; }
+.history-actions button { display: flex; align-items: center; gap: 4px; border: 0; color: #98634b; background: transparent; font-size: 9px; cursor: pointer; }
+.history-list { display: grid; gap: 6px; margin-top: 10px; }
+.history-list > div { position: relative; display: grid; gap: 3px; padding: 9px 28px 9px 9px; border: 1px solid var(--line); border-radius: 9px; background: white; }
+.history-list b { color: var(--mint); font-size: 8px; }
+.history-list span, .history-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+.history-list small { color: var(--muted); }
+.history-list button { position: absolute; top: 7px; right: 7px; border: 0; background: transparent; cursor: pointer; }
+.new-badge { margin-left: auto; padding: 2px 6px; border-radius: 99px; color: white; background: #e2644a; font-size: 7px; font-style: normal; }
+.update-link { margin-top: 11px; width: 100%; }
+.privacy-copy { margin: 0; color: #596664; font-size: 9px; line-height: 1.7; }
+.settings-global-message { position: sticky; bottom: 0; z-index: 2; box-shadow: 0 -5px 20px rgba(31,44,40,.1); }
 .select-menu { position: absolute; z-index: 20; top: calc(100% + 8px); left: 18px; min-width: 240px; max-height: 330px; overflow: auto; padding: 8px; background: white; border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 18px 50px rgba(31,44,40,.16); }
 .select-menu button { width: 100%; display: flex; align-items: center; gap: 10px; border: 0; border-radius: 9px; background: transparent; padding: 10px; text-align: left; cursor: pointer; }
 .select-menu button:hover, .select-menu button.selected { background: var(--mint-soft); }
@@ -178,6 +223,11 @@ footer span { display: flex; align-items: center; gap: 6px; }
   .translation-mode-bar > div { flex: 1; }
   .translation-mode-bar button { flex: 1; justify-content: center; padding: 0 6px; }
   .translation-mode-bar small { display: none; }
+  .provider-bar { flex-wrap: wrap; gap: 7px; padding: 8px 12px; }
+  .provider-bar > span { display: none; }
+  .provider-select-wrap { min-width: 0; flex: 1; }
+  .executed-provider { order: 3; flex-basis: 100%; }
+  .provider-menu { min-width: min(290px, calc(100vw - 52px)); }
   .translation-grid { grid-template-columns: 1fr; border-radius: 0 0 18px 18px; }
   .translation-pane + .translation-pane { border-left: 0; border-top: 1px solid var(--line); }
   .translation-pane { min-height: 250px; padding: 22px 19px 62px; }

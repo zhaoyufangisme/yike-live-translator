@@ -1,6 +1,6 @@
 {
   "name": "yike-desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "译刻 Windows 桌面应用",
   "main": "main.js",
@@ -10,7 +10,8 @@
     "appId": "com.yike.translator",
     "productName": "译刻",
     "artifactName": "Yike-Setup-${version}.${ext}",
-    "files": ["main.js", "package.json"],
+    "files": ["main.js", "preload.js", "package.json", "app/**/*"],
+    "extraResources": [{ "from": "argos-dist/argos-service.exe", "to": "argos/argos-service.exe" }],
     "directories": { "output": "release" },
     "win": { "target": "nsis" },
     "nsis": {

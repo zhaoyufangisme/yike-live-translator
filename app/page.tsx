@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect, react-hooks/immutability, jsx-a11y/no-static-element-interactions */
 
 import {
   ArrowRightLeft,
@@ -10,7 +11,6 @@ import {
   ImagePlus,
   KeyRound,
   LoaderCircle,
-  Mail,
   Mic,
   Palette,
   Settings,
@@ -20,10 +20,31 @@ import {
   Upload,
   UserRound,
   Volume2,
+  Wifi,
+  HardDrive,
+  RefreshCw,
+  History,
+  Download,
+  ExternalLink,
   X,
   Zap,
 } from "lucide-react";
 import { ChangeEvent, DragEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  getProviderQuota,
+  installArgosPackage,
+  listArgosPackages,
+  loadProviderConfig,
+  PROVIDERS,
+  ProviderConfig,
+  ProviderId,
+  ProviderResult,
+  QuotaResult,
+  saveProviderConfig,
+  testProvider,
+  translateWithProvider,
+  type ArgosPackage,
+} from "./providers";
 
 type Side = "left" | "right";
 type Theme = "mint" | "ocean" | "sunset";
@@ -83,71 +104,24 @@ const PREFERRED_CURRENCY_KEY = "yike-preferred-currency";
 const PREFERRED_LANGUAGE_KEY = "yike-preferred-language";
 const MYMEMORY_EMAIL_KEY = "yike-mymemory-email";
 const THEME_KEY = "yike-theme";
-const MYMEMORY_USAGE_KEY = "yike-mymemory-daily-usage";
 const TRANSLATION_MODE_KEY = "yike-translation-mode";
-const TRANSLATION_CHUNK_BYTES = 450;
-
-function todayKey() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).format(new Date());
-}
-
-function decodeEntities(value: string) {
-  return value
-    .replaceAll("&quot;", '"')
-    .replaceAll("&#39;", "'")
-    .replaceAll("&amp;", "&")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">");
-}
-
-function chunkTranslationText(text: string) {
-  const encoder = new TextEncoder();
-  const chunks: string[] = [];
-  const lines = text.split("\n");
-  for (const [lineIndex, line] of lines.entries()) {
-    let current = "";
-    for (const character of line) {
-      if (current && encoder.encode(current + character).length > TRANSLATION_CHUNK_BYTES) {
-        chunks.push(current);
-        current = character;
-      } else {
-        current += character;
-      }
-    }
-    if (current) chunks.push(current);
-    if (lineIndex < lines.length - 1) chunks.push("\n");
-  }
-  return chunks;
-}
-
-async function translateText(text: string, source: string, target: string, email: string, signal: AbortSignal, onUsage: (characters: number, quotaFinished: boolean) => void) {
-  const translated: string[] = [];
-  for (const chunk of chunkTranslationText(text)) {
-    if (chunk === "\n") {
-      translated.push(chunk);
-      continue;
-    }
-    const url = new URL("https://api.mymemory.translated.net/get");
-    url.searchParams.set("q", chunk);
-    url.searchParams.set("langpair", `${source}|${target}`);
-    if (email.includes("@")) url.searchParams.set("de", email);
-    const response = await fetch(url, { headers: { Accept: "application/json" }, signal });
-    if (!response.ok) throw new Error("翻译服务暂时不可用");
-    const data = (await response.json()) as {
-      quotaFinished?: boolean;
-      responseStatus?: number;
-      responseData?: { translatedText?: string };
-    };
-    onUsage(Array.from(chunk).length, Boolean(data.quotaFinished));
-    if (data.quotaFinished) throw new Error("今日 MyMemory 额度已用尽");
-    if (data.responseStatus && data.responseStatus >= 400) throw new Error("翻译请求已被拒绝");
-    translated.push(decodeEntities(data.responseData?.translatedText ?? ""));
-  }
-  return translated.join("");
-}
-
+const PROVIDER_KEY = "yike-provider-v2";
+const HISTORY_KEY = "yike-translation-history-v2";
+const HISTORY_ENABLED_KEY = "yike-history-enabled-v2";
+const UPDATE_CHECK_KEY = "yike-update-check-v2";
+const APP_VERSION = "0.2.0";
+const RELEASE_API = "https://api.github.com/repos/zhaoyufangisme/yike-live-translator/releases/latest";
 function formatMoney(value: number) {
   return Number.isFinite(value) ? value.toLocaleString("zh-CN", { maximumFractionDigits: 4 }) : "";
+}
+
+function isNewerVersion(remote: string, current: string) {
+  const parse = (value: string) => value.replace(/^v/, "").split("-")[0].split(".").map((part) => Number(part) || 0);
+  const a = parse(remote); const b = parse(current);
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    if ((a[index] ?? 0) !== (b[index] ?? 0)) return (a[index] ?? 0) > (b[index] ?? 0);
+  }
+  return false;
 }
 
 export default function Home() {
@@ -173,12 +147,21 @@ export default function Home() {
   const [rateLoading, setRateLoading] = useState(true);
   const [rateError, setRateError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [myMemoryEmail, setMyMemoryEmail] = useState("");
   const [emailDraft, setEmailDraft] = useState("");
   const [settingsMessage, setSettingsMessage] = useState("");
   const [theme, setTheme] = useState<Theme>("mint");
-  const [quotaUsed, setQuotaUsed] = useState(0);
-  const [quotaFinished, setQuotaFinished] = useState(false);
+  const [provider, setProvider] = useState<ProviderId>("argos");
+  const [providerOpen, setProviderOpen] = useState(false);
+  const [providerConfig, setProviderConfig] = useState<ProviderConfig>({ deepseekModel: "deepseek-v4-flash", doubaoModel: "doubao-seed-2-0-lite-260215", doubaoEndpoint: "https://ark.cn-beijing.volces.com/api/v3/chat/completions" });
+  const [executedProvider, setExecutedProvider] = useState<ProviderResult | null>(null);
+  const [quota, setQuota] = useState<QuotaResult | null>(null);
+  const [providerTesting, setProviderTesting] = useState<ProviderId | null>(null);
+  const [history, setHistory] = useState<{ id: string; source: string; target: string; provider: ProviderId; createdAt: string }[]>([]);
+  const [historyEnabled, setHistoryEnabled] = useState(true);
+  const [argosPackages, setArgosPackages] = useState<ArgosPackage[]>([]);
+  const [latestRelease, setLatestRelease] = useState<{ tag: string; url: string; body: string; publishedAt: string } | null>(null);
+  const [updateCheckEnabled, setUpdateCheckEnabled] = useState(true);
+  const [runtime, setRuntime] = useState<"web" | "windows" | "android">("web");
   const [translationMode, setTranslationMode] = useState<TranslationMode>("instant");
   const [manualRequest, setManualRequest] = useState<{ id: number; side: Side; text: string } | null>(null);
   const leftFileInputRef = useRef<HTMLInputElement>(null);
@@ -198,9 +181,11 @@ export default function Home() {
     const savedEmail = window.localStorage.getItem(MYMEMORY_EMAIL_KEY) ?? "";
     const savedTheme = (window.localStorage.getItem(THEME_KEY) as Theme | null) ?? "mint";
     const savedLanguage = window.localStorage.getItem(PREFERRED_LANGUAGE_KEY);
-    const savedUsage = window.localStorage.getItem(MYMEMORY_USAGE_KEY);
     const savedTranslationMode = window.localStorage.getItem(TRANSLATION_MODE_KEY);
-    setMyMemoryEmail(savedEmail);
+    const savedProvider = window.localStorage.getItem(PROVIDER_KEY) as ProviderId | null;
+    const savedHistory = window.localStorage.getItem(HISTORY_KEY);
+    const savedHistoryEnabled = window.localStorage.getItem(HISTORY_ENABLED_KEY);
+    const savedUpdateCheck = window.localStorage.getItem(UPDATE_CHECK_KEY);
     setEmailDraft(savedEmail);
     if (["mint", "ocean", "sunset"].includes(savedTheme)) {
       setTheme(savedTheme);
@@ -208,37 +193,17 @@ export default function Home() {
     }
     if (savedLanguage && LANGUAGES.some((item) => item.code === savedLanguage)) setLanguageCode(savedLanguage);
     if (savedTranslationMode === "instant" || savedTranslationMode === "enter") setTranslationMode(savedTranslationMode);
-    if (savedUsage) {
-      try {
-        const parsed = JSON.parse(savedUsage) as { date?: string; used?: number; finished?: boolean };
-        if (parsed.date === todayKey()) {
-          setQuotaUsed(typeof parsed.used === "number" ? parsed.used : 0);
-          setQuotaFinished(Boolean(parsed.finished));
-        } else {
-          window.localStorage.removeItem(MYMEMORY_USAGE_KEY);
-        }
-      } catch {
-        window.localStorage.removeItem(MYMEMORY_USAGE_KEY);
-      }
-    }
-  }, []);
-
-  const quotaLimit = myMemoryEmail ? 50000 : 5000;
-  const quotaRemaining = quotaFinished ? 0 : Math.max(0, quotaLimit - quotaUsed);
-
-  const recordQuotaUsage = useCallback((characters: number, finished: boolean) => {
-    const date = todayKey();
-    let previous = 0;
-    try {
-      const saved = JSON.parse(window.localStorage.getItem(MYMEMORY_USAGE_KEY) ?? "{}") as { date?: string; used?: number };
-      if (saved.date === date && typeof saved.used === "number") previous = saved.used;
-    } catch {
-      previous = 0;
-    }
-    const used = previous + characters;
-    setQuotaUsed(used);
-    setQuotaFinished(finished);
-    window.localStorage.setItem(MYMEMORY_USAGE_KEY, JSON.stringify({ date, used, finished }));
+    if (savedProvider && Object.hasOwn(PROVIDERS, savedProvider)) setProvider(savedProvider);
+    if (savedHistoryEnabled === "false") setHistoryEnabled(false);
+    if (savedUpdateCheck === "false") setUpdateCheckEnabled(false);
+    if (savedHistory) try { setHistory(JSON.parse(savedHistory)); } catch { window.localStorage.removeItem(HISTORY_KEY); }
+    void loadProviderConfig().then((config) => {
+      setProviderConfig((current) => ({ ...current, ...config }));
+      setEmailDraft(config.mymemoryEmail ?? "");
+    });
+    void listArgosPackages().then(setArgosPackages).catch(() => undefined);
+    if (window.yikeNative) setRuntime("windows");
+    else void import("@capacitor/core").then(({ Capacitor }) => { if (Capacitor.isNativePlatform()) setRuntime("android"); });
   }, []);
 
   useEffect(() => {
@@ -262,18 +227,26 @@ export default function Home() {
       setTranslating(true);
       setTranslationError("");
       try {
-        const translatedText = await translateText(
+        const result = await translateWithProvider(
+          provider,
           translationText,
           translationSide === "left" ? languageCode : "zh-CN",
           translationSide === "left" ? "zh-CN" : languageCode,
-          myMemoryEmail,
+          providerConfig,
           controller.signal,
-          recordQuotaUsage,
         );
-        if (translationSide === "left") setRightText(translatedText);
-        else setLeftText(translatedText);
+        if (translationSide === "left") setRightText(result.text);
+        else setLeftText(result.text);
+        setExecutedProvider(result);
+        if (historyEnabled) {
+          setHistory((current) => {
+            const next = [{ id: crypto.randomUUID(), source: translationText, target: result.text, provider: result.provider, createdAt: result.checkedAt }, ...current].slice(0, 100);
+            window.localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+            return next;
+          });
+        }
       } catch (error) {
-        if ((error as Error).name !== "AbortError") setTranslationError("暂时无法连接翻译服务，请稍后重试");
+        if ((error as Error).name !== "AbortError") setTranslationError((error as Error).message || `${PROVIDERS[provider].name} 翻译失败`);
       } finally {
         if (!controller.signal.aborted) setTranslating(false);
       }
@@ -283,7 +256,25 @@ export default function Home() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [languageCode, manualRequest, myMemoryEmail, recordQuotaUsage, translationMode, translationSide, translationText]);
+  }, [historyEnabled, languageCode, manualRequest, provider, providerConfig, translationMode, translationSide, translationText]);
+
+  const refreshQuota = useCallback(async (selected: ProviderId = provider) => {
+    try { setQuota(await getProviderQuota(selected, providerConfig)); }
+    catch (error) { setQuota({ kind: "unavailable", title: "查询失败", detail: (error as Error).message, source: `${PROVIDERS[selected].name} 官方服务` }); }
+  }, [provider, providerConfig]);
+
+  useEffect(() => { void refreshQuota(provider); }, [provider, refreshQuota]);
+
+  useEffect(() => {
+    if (!updateCheckEnabled) return;
+    const controller = new AbortController();
+    void fetch(RELEASE_API, { headers: { Accept: "application/vnd.github+json" }, signal: controller.signal })
+      .then(async (response) => { if (!response.ok) throw new Error(); return response.json(); })
+      .then((data: { tag_name?: string; html_url?: string; body?: string; published_at?: string }) => {
+        if (data.tag_name && data.html_url) setLatestRelease({ tag: data.tag_name, url: data.html_url, body: data.body ?? "", publishedAt: data.published_at ?? "" });
+      }).catch(() => undefined);
+    return () => controller.abort();
+  }, [updateCheckEnabled]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -460,11 +451,53 @@ export default function Home() {
       setSettingsMessage("请输入有效邮箱，或留空使用匿名额度");
       return;
     }
-    setMyMemoryEmail(normalized);
-    if (normalized) window.localStorage.setItem(MYMEMORY_EMAIL_KEY, normalized);
-    else window.localStorage.removeItem(MYMEMORY_EMAIL_KEY);
-    setSettingsMessage(normalized ? "已保存在本机，当前额度约 50,000 字符/天" : "已切换为匿名额度：约 5,000 字符/天");
+    const next = { ...providerConfig, mymemoryEmail: normalized };
+    setProviderConfig(next);
+    void saveProviderConfig(next);
+    if (normalized) window.localStorage.setItem(MYMEMORY_EMAIL_KEY, normalized); else window.localStorage.removeItem(MYMEMORY_EMAIL_KEY);
+    setSettingsMessage(normalized ? "邮箱已保存在本机。实际剩余额度无法由官方接口实时查询。" : "已切换为匿名方式。实际剩余额度无法由官方接口实时查询。");
   };
+
+  const chooseProvider = (nextProvider: ProviderId) => {
+    setProvider(nextProvider);
+    setProviderOpen(false);
+    setExecutedProvider(null);
+    setTranslationError("");
+    window.localStorage.setItem(PROVIDER_KEY, nextProvider);
+  };
+
+  const updateProviderConfig = (key: keyof ProviderConfig, value: string) => setProviderConfig((current) => ({ ...current, [key]: value }));
+
+  const persistProviderConfig = async () => {
+    await saveProviderConfig(providerConfig);
+    const { Capacitor } = await import("@capacitor/core");
+    setSettingsMessage(window.yikeNative || Capacitor.isNativePlatform() ? "配置已使用系统安全存储保存在本机" : "网页端普通配置保存在本机；密钥仅保留到本次浏览器会话结束");
+  };
+
+  const runProviderTest = async (selected: ProviderId) => {
+    setProviderTesting(selected);
+    setSettingsMessage("");
+    try {
+      await saveProviderConfig(providerConfig);
+      const result = await testProvider(selected, providerConfig);
+      setSettingsMessage(`${PROVIDERS[selected].name} 可用 · 实际返回模型/服务：${result.model || PROVIDERS[selected].name}`);
+      await refreshQuota(selected);
+    } catch (error) {
+      setSettingsMessage((error as Error).message || `${PROVIDERS[selected].name} 连接失败`);
+    } finally { setProviderTesting(null); }
+  };
+
+  const downloadArgos = async () => {
+    setSettingsMessage(`正在下载并安装 ${languageCode} ↔ zh 离线语言包，请勿关闭软件…`);
+    try {
+      let packages = await installArgosPackage(languageCode, "zh");
+      packages = await installArgosPackage("zh", languageCode);
+      setArgosPackages(packages);
+      setSettingsMessage("Argos 离线语言包安装完成，可断网翻译");
+    } catch (error) { setSettingsMessage((error as Error).message); }
+  };
+
+  const clearHistory = () => { setHistory([]); window.localStorage.removeItem(HISTORY_KEY); };
 
   const chooseTheme = (nextTheme: Theme) => {
     setTheme(nextTheme);
@@ -475,14 +508,14 @@ export default function Home() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <a className="brand" href="#" aria-label="译刻首页">
+        <div className="brand" aria-label="译刻首页">
           <span className="brand-mark"><Sparkles size={19} strokeWidth={2.2} /></span>
           <span>译刻</span>
-        </a>
+        </div>
         <div className="topbar-actions">
-          <span className="status-pill"><i /> 实时翻译已就绪</span>
+          <span className="status-pill"><i /> {PROVIDERS[provider].name}</span>
           <button className="user-avatar" onClick={() => setSettingsOpen(true)} aria-label="打开用户设置"><UserRound size={19} /></button>
-          <button className="quota-pill" onClick={() => setSettingsOpen(true)} aria-label={`参考剩余额度 ${quotaRemaining.toLocaleString()} 字符`}><span>参考剩余</span><b>{quotaRemaining.toLocaleString()}</b></button>
+          <button className="quota-pill" onClick={() => setSettingsOpen(true)} aria-label="查看真实额度状态"><span>额度</span><b>{quota?.kind === "balance" ? quota.title.replace("账户余额：", "") : "查看说明"}</b></button>
         </div>
       </header>
 
@@ -492,27 +525,82 @@ export default function Home() {
             <div className="settings-header"><div><span className="settings-avatar"><UserRound size={22} /></span><span><b>本机访客</b><small>无需登录 · 数据保存在此设备</small></span></div><button onClick={() => setSettingsOpen(false)} aria-label="关闭用户设置"><X size={18} /></button></div>
 
             <section className="settings-section">
-              <div className="settings-title"><UserRound size={16} /><b>账户切换</b></div>
-              <button className="account-row selected"><span className="mini-avatar">访</span><span><b>本机访客</b><small>当前账户 · 无服务器账号</small></span><Check size={16} /></button>
-              <button className="account-row" disabled><span className="mini-avatar muted"><KeyRound size={14} /></span><span><b>API 账户</b><small>以后可连接 DeepSeek、豆包等自有 API</small></span><em>规划中</em></button>
+              <div className="settings-title"><KeyRound size={16} /><b>翻译引擎与用户 API</b></div>
+              <p className="privacy-note"><ShieldCheck size={14} /> 无需译刻账号。安装版密钥使用系统安全存储，API 请求由用户设备直连官方服务，不经过开发者服务器。</p>
+              <div className="provider-settings-list">
+                {(Object.keys(PROVIDERS) as ProviderId[]).map((item) => (
+                  <button key={item} className={`account-row ${provider === item ? "selected" : ""}`} onClick={() => chooseProvider(item)}>
+                    <span className="mini-avatar">{item === "argos" ? <HardDrive size={14} /> : <Wifi size={14} />}</span>
+                    <span><b>{PROVIDERS[item].name}</b><small>{PROVIDERS[item].description}</small></span>
+                    {provider === item && <Check size={16} />}
+                  </button>
+                ))}
+              </div>
+
+              {provider === "argos" && <div className="provider-config-box">
+                <b>离线语言包：{language.name} ↔ 中文</b>
+                <p>{argosPackages.some((item) => item.installed && ((item.fromCode === languageCode && item.toCode === "zh") || (item.fromCode === "zh" && item.toCode === languageCode))) ? "已检测到部分或完整语言包" : "缺少离线语言包"}</p>
+                <button className="settings-action" onClick={downloadArgos}><Download size={14} /> 下载并安装双向语言包</button>
+                <small>真实 .argosmodel 语言包仅在 Windows 安装版内管理；网页端不会模拟离线翻译。</small>
+              </div>}
+
+              {provider === "mymemory" && <div className="provider-config-box">
+                <label className="email-setting"><span>联系邮箱（可选）</span><div><input type="email" value={emailDraft} onChange={(event) => setEmailDraft(event.target.value)} placeholder="your@email.com" autoComplete="email" /><button onClick={saveMyMemoryEmail}>保存</button></div></label>
+                <small>仅按 MyMemory 官方 `de` 参数从本机发送。实际剩余额度：官方接口暂不支持实时查询。</small>
+              </div>}
+
+              {provider === "baidu" && <div className="provider-config-box api-fields">
+                <label>APP ID<input value={providerConfig.baiduAppId ?? ""} onChange={(event) => updateProviderConfig("baiduAppId", event.target.value)} /></label>
+                <label>密钥<input type="password" value={providerConfig.baiduSecret ?? ""} onChange={(event) => updateProviderConfig("baiduSecret", event.target.value)} /></label>
+              </div>}
+
+              {provider === "deepseek" && <div className="provider-config-box api-fields">
+                <label>API Key<input type="password" value={providerConfig.deepseekApiKey ?? ""} onChange={(event) => updateProviderConfig("deepseekApiKey", event.target.value)} /></label>
+                <label>当前模型<input value={providerConfig.deepseekModel ?? "deepseek-v4-flash"} onChange={(event) => updateProviderConfig("deepseekModel", event.target.value)} /></label>
+              </div>}
+
+              {provider === "doubao" && <div className="provider-config-box api-fields">
+                <label>火山方舟 API Key<input type="password" value={providerConfig.doubaoApiKey ?? ""} onChange={(event) => updateProviderConfig("doubaoApiKey", event.target.value)} /></label>
+                <label>Model ID<input value={providerConfig.doubaoModel ?? "doubao-seed-2-0-lite-260215"} onChange={(event) => updateProviderConfig("doubaoModel", event.target.value)} /></label>
+                <label>Endpoint<input value={providerConfig.doubaoEndpoint ?? "https://ark.cn-beijing.volces.com/api/v3/chat/completions"} onChange={(event) => updateProviderConfig("doubaoEndpoint", event.target.value)} /></label>
+              </div>}
+
+              {provider !== "argos" && <div className="settings-button-row"><button className="settings-action" onClick={persistProviderConfig}>保存配置</button><button className="settings-action secondary" disabled={providerTesting === provider} onClick={() => runProviderTest(provider)}>{providerTesting === provider ? <LoaderCircle className="spin" size={14} /> : <Wifi size={14} />} 测试真实连接</button></div>}
             </section>
 
             <section className="settings-section">
-              <div className="settings-title"><Mail size={16} /><b>MyMemory 翻译额度</b></div>
-              <div className="quota-grid"><div className={!myMemoryEmail ? "active" : ""}><b>5,000</b><span>字符/天</span><small>匿名使用，不填邮箱</small></div><div className={myMemoryEmail ? "active" : ""}><b>50,000</b><span>字符/天</span><small>填写有效邮箱后</small></div></div>
-              <div className="quota-live"><span><i /> 本机今日参考剩余</span><b>{quotaRemaining.toLocaleString()} 字符</b></div>
-              <label className="email-setting"><span>MyMemory 联系邮箱（可选）</span><div><input type="email" value={emailDraft} onChange={(event) => setEmailDraft(event.target.value)} placeholder="your@email.com" autoComplete="email" /><button onClick={saveMyMemoryEmail}>保存</button></div></label>
-              <p className="privacy-note"><ShieldCheck size={14} /> 邮箱只保存在当前设备，并由此设备直接发送给 MyMemory；译刻不接收、不上传。</p>
-              <p className="quota-disclaimer">仅供参考：按本机译刻今天实际发送的字符计算。MyMemory 不提供精确余额接口；同一网络或其他软件产生的用量不会显示在这里，服务方实际剩余额度可能更少。</p>
-              {settingsMessage && <p className="settings-message">{settingsMessage}</p>}
+              <div className="settings-title"><RefreshCw size={16} /><b>额度与用量</b><button className="inline-refresh" onClick={() => refreshQuota()}><RefreshCw size={13} /> 刷新</button></div>
+              <div className="quota-truth"><b>{quota?.title ?? "正在查询…"}</b><span>{quota?.detail}</span><small>数据来源：{quota?.source ?? PROVIDERS[provider].name}{quota?.checkedAt ? ` · 上次查询 ${new Date(quota.checkedAt).toLocaleString("zh-CN")}` : ""}</small></div>
+              <p className="quota-disclaimer">只把官方接口返回的数据标为真实余额。无法查询时会明确说明，不再用本地计数冒充剩余额度。</p>
             </section>
+
+            <section className="settings-section">
+              <div className="settings-title"><History size={16} /><b>翻译历史</b></div>
+              <label className="toggle-row"><span>在本机保存历史<small>关闭后不再保存新的翻译内容</small></span><input type="checkbox" checked={historyEnabled} onChange={(event) => { setHistoryEnabled(event.target.checked); localStorage.setItem(HISTORY_ENABLED_KEY, String(event.target.checked)); }} /></label>
+              <div className="history-actions"><span>本机已有 {history.length} 条</span><button onClick={clearHistory}><Trash2 size={13} /> 清空历史</button></div>
+              <div className="history-list">{history.slice(0, 5).map((item) => <div key={item.id}><b>{PROVIDERS[item.provider].name}</b><span>{item.source}</span><small>{item.target}</small><button onClick={() => { const next = history.filter((entry) => entry.id !== item.id); setHistory(next); localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); }} aria-label="删除这条历史"><X size={12} /></button></div>)}</div>
+            </section>
+
+            <section className="settings-section">
+              <div className="settings-title"><Download size={16} /><b>版本与更新</b>{latestRelease && isNewerVersion(latestRelease.tag, APP_VERSION) && <em className="new-badge">NEW</em>}</div>
+              <div className="version-row"><span>当前版本：v{APP_VERSION}</span><span>最新版本：{latestRelease?.tag ?? "暂未查询到"}</span></div>
+              <label className="toggle-row"><span>启动时检查新版本<small>仅访问公开 GitHub Release，不会强制更新</small></span><input type="checkbox" checked={updateCheckEnabled} onChange={(event) => { setUpdateCheckEnabled(event.target.checked); localStorage.setItem(UPDATE_CHECK_KEY, String(event.target.checked)); }} /></label>
+              {latestRelease && <a className="settings-action update-link" href={latestRelease.url} target="_blank" rel="noreferrer">查看 Release Notes 与下载 <ExternalLink size={14} /></a>}
+            </section>
+
+            <section className="settings-section">
+              <div className="settings-title"><ShieldCheck size={16} /><b>隐私与数据</b></div>
+              <p className="privacy-copy"><b>Argos：</b>文本仅在本机处理。<br/><b>MyMemory：</b>文本及可选邮箱发送给 MyMemory。<br/><b>百度：</b>文本发送给百度翻译官方 API。<br/><b>DeepSeek：</b>文本发送给 DeepSeek 官方 API。<br/><b>豆包：</b>文本发送给火山方舟官方 API。<br/>译刻开发者默认不接收翻译文本、密钥或历史。</p>
+            </section>
+
+            {settingsMessage && <p className="settings-message settings-global-message">{settingsMessage}</p>}
 
             <section className="settings-section">
               <div className="settings-title"><Palette size={16} /><b>主题颜色</b></div>
               <div className="theme-options">{([['mint','翡翠'],['ocean','海蓝'],['sunset','暖橙']] as [Theme,string][]).map(([value,label]) => <button key={value} className={theme === value ? `theme-${value} selected` : `theme-${value}`} onClick={() => chooseTheme(value)}><i />{label}{theme === value && <Check size={14} />}</button>)}</div>
             </section>
 
-            <div className="settings-footer"><Settings size={14} /> 当前登录方式：无需登录。本机设置不会同步到其他设备。</div>
+            <div className="settings-footer"><Settings size={14} /> 无需登录 · 无会员或支付 · 数据默认仅保存在本机。</div>
           </aside>
         </div>
       )}
@@ -541,6 +629,21 @@ export default function Home() {
           </div>
           <span className={`flow-icon ${translating ? "working" : ""}`}><ArrowRightLeft size={17} /></span>
           <div className="language-fixed">中文 <span>固定</span></div>
+        </div>
+
+        <div className="provider-bar">
+          <span>翻译引擎</span>
+          <div className="select-wrap provider-select-wrap">
+            <button className="provider-select" onClick={() => setProviderOpen((open) => !open)} aria-expanded={providerOpen}>
+              {provider === "argos" ? <HardDrive size={15} /> : <Wifi size={15} />}
+              <b>{PROVIDERS[provider].name}</b>
+              {PROVIDERS[provider].model && <small>{provider === "deepseek" ? providerConfig.deepseekModel : provider === "doubao" ? providerConfig.doubaoModel : PROVIDERS[provider].model}</small>}
+              <ChevronDown size={14} />
+            </button>
+            {providerOpen && <div className="select-menu provider-menu">{(Object.keys(PROVIDERS) as ProviderId[]).map((item) => <button key={item} onClick={() => chooseProvider(item)} className={provider === item ? "selected" : ""}><span><b>{PROVIDERS[item].name}</b><small>{item === "argos" ? "本地离线" : item === "mymemory" ? "免费在线备用" : item === "baidu" ? (providerConfig.baiduAppId ? "已配置" : "未配置") : item === "deepseek" ? (providerConfig.deepseekApiKey ? "已配置" : "未配置") : (providerConfig.doubaoApiKey ? "已配置" : "未配置")}</small></span>{provider === item && <Check size={14} />}</button>)}</div>}
+          </div>
+          <small className="executed-provider">{executedProvider ? `本次实际执行：${PROVIDERS[executedProvider.provider].name}${executedProvider.model ? ` · ${executedProvider.model}` : ""}` : provider === "argos" && runtime === "web" ? "网页端不模拟离线引擎，请下载客户端" : provider === "argos" && runtime === "android" ? "Android v0.2.0 暂不提供 Argos 运行时" : "等待翻译"}</small>
+          <button className="provider-settings-button" onClick={() => setSettingsOpen(true)}><Settings size={14} /> 配置</button>
         </div>
 
         <div className="translation-mode-bar">

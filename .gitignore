@@ -4,9 +4,15 @@
 /node_modules
 /desktop/node_modules/
 /desktop/release/
+/desktop/app/
+/desktop/argos-dist/
 /mobile/node_modules/
 /mobile/android/
-/mobile/Yike-Android.apk
+/mobile/Yike-Android-*.apk
+/mobile/www/assets/
+/client/dist/
+/build/
+/*.spec
 /.pnp
 .pnp.*
 .yarn/*

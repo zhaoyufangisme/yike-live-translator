@@ -1,10 +1,5 @@
 {
   "appId": "com.yike.translator",
   "appName": "译刻",
-  "webDir": "www",
-  "server": {
-    "url": "https://yike-live-translator-2026.wwpbbms123.chatgpt.site/",
-    "cleartext": false,
-    "allowNavigation": ["*.chatgpt.site", "auth.openai.com", "*.openai.com"]
-  }
+  "webDir": "www"
 }
